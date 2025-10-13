@@ -1,0 +1,7 @@
+[settings]
+lockfile = true
+
+[tools]
+elixir = "latest"
+erlang = "latest"
+"npm:@anthropic-ai/claude-code" = "latest"
