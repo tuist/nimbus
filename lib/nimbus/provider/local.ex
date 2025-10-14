@@ -34,12 +34,14 @@ defmodule Nimbus.Provider.Local do
   @behaviour Nimbus.Provider
 
   alias Nimbus.Machine
+  alias Nimbus.Machine.Setup
   alias Nimbus.Provider.Config
 
   @impl true
   def provision(%Config{type: :local} = config, specs) do
     machine_id = generate_machine_id()
     name = get_in(config.config, [:name]) || "localhost"
+    skip_setup = Map.get(specs, :skip_setup, false)
 
     machine =
       Machine.new(
@@ -48,7 +50,7 @@ defmodule Nimbus.Provider.Local do
         config.id,
         detect_os(specs),
         detect_arch(specs),
-        :running,
+        :provisioning,
         ip_address: "127.0.0.1",
         ssh_public_key: nil,
         labels: Map.get(specs, :labels, []),
@@ -60,7 +62,12 @@ defmodule Nimbus.Provider.Local do
         }
       )
 
-    {:ok, machine}
+    # Run setup unless explicitly skipped (useful for testing)
+    if skip_setup do
+      {:ok, %{machine | state: :ready}}
+    else
+      Setup.setup(machine)
+    end
   end
 
   @impl true

@@ -367,6 +367,25 @@ defmodule Nimbus.Telemetry do
     end
   end
 
+  @doc """
+  Executes a function and emits telemetry span events.
+
+  Similar to `:telemetry.span/3`, this function wraps an operation with
+  start/stop/exception telemetry events. The function should return a
+  tuple `{result, metadata}` where metadata is merged with the initial metadata.
+
+  ## Examples
+
+      Nimbus.Telemetry.span([:nimbus, :machine, :setup], %{machine_id: "m1"}, fn ->
+        result = do_setup()
+        {{:ok, result}, %{status: :success}}
+      end)
+  """
+  @spec span(list(atom()), map(), (-> {term(), map()})) :: term()
+  def span(event_prefix, metadata, fun) when is_list(event_prefix) and is_map(metadata) do
+    :telemetry.span(event_prefix, metadata, fun)
+  end
+
   @doc false
   defmacro __using__(_opts) do
     quote do

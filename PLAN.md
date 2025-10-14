@@ -279,11 +279,15 @@ Each event includes metadata like `tenant_id`, `machine_id`, `duration`, `error`
 - [ ] Handle API errors and retries
 
 #### 4. Machine Setup (SSH)
-- [ ] Implement Nimbus.Machine.SSH module
+- [x] Implement Nimbus.XDG for XDG Base Directory paths
+- [x] Implement Nimbus.Machine.Setup module
+- [x] Implement GitHub Actions runner installer
+- [x] Implement Curie installer (macOS only)
+- [x] Implement Geranos installer (macOS only)
+- [x] Integrate setup into Local provider
+- [ ] Implement Nimbus.Machine.SSH module (for remote execution)
 - [ ] SSH connection with tenant's key
-- [ ] Install homebrew and dependencies
-- [ ] Download and install GitHub runner agent
-- [ ] Configure and register runner
+- [ ] Configure and register runner with forge
 - [ ] Health check and verification
 
 #### 5. Public API
@@ -294,7 +298,9 @@ Each event includes metadata like `tenant_id`, `machine_id`, `duration`, `error`
 - [x] `Nimbus.can_terminate_machine?(tenant_id, machine_id)` (with TODO: provider lookup)
 
 #### 6. Testing
-- [ ] Unit tests for core modules
+- [x] Unit tests for XDG module
+- [x] Unit tests for Machine.Setup module (with mocked installers)
+- [ ] Unit tests for remaining core modules
 - [ ] Mocked AWS API tests
 - [ ] Mocked GitHub API tests
 - [ ] Integration tests (may require real AWS/GitHub sandbox)
@@ -453,4 +459,230 @@ Each event includes metadata like `tenant_id`, `machine_id`, `duration`, `error`
 - Machine discovery uses cloud provider tags instead of storing state
 - Integrator provides storage implementation and SSH keys
 - Nimbus manages complete lifecycle including forge integration
+
+### Machine State Persistence Strategy
+
+**Design Decision: State Lives on the Machine**
+
+We persist detailed machine state on the machine itself (via SSH-accessible file/database), rather than in the integrating application's storage. This aligns with our "lean state" principle.
+
+**Two-Layer State Model:**
+
+1. **Basic State (from Cloud Provider API)**
+   - Machine existence, IP address, running/stopped status
+   - Discovered via `Provider.list_machines()` and `Provider.get_machine()`
+   - Available immediately after provisioning
+   - Source of truth: Cloud provider tags/API
+
+2. **Detailed State (from Machine Filesystem)**
+   - Image installation progress
+   - Runner registration status
+   - Setup step completion
+   - Application-specific metadata
+   - Available once SSH-accessible
+   - Source of truth: File/database on machine
+
+**State Persistence Options:**
+
+Option A: **JSON File on Disk**
+```bash
+/var/lib/nimbus/state.json
+```
+- Pros: Simple, human-readable, no dependencies, easy to write
+- Cons: Poor queryability (must read entire file), harder to debug at scale
+- Example: `cat state.json` dumps everything, can't filter or query specific fields
+
+Option B: **SQLite Database** (CHOSEN)
+```bash
+/var/lib/nimbus/state.db
+```
+- Pros: Queryable via SSH, atomic writes, transactional, battle-tested
+- Cons: Binary format (but sqlite3 CLI is ubiquitous), need schema
+- Queryability is key for debugging provisioning issues
+- Example queries:
+  ```bash
+  # Check failed steps
+  sqlite3 state.db 'SELECT * FROM setup_steps WHERE status = "failed"'
+
+  # See timing information
+  sqlite3 state.db 'SELECT step, started_at, completed_at FROM setup_steps'
+
+  # Check current state
+  sqlite3 state.db 'SELECT state, updated_at FROM machine_state'
+  ```
+
+Option C: **etcd/Consul (Embedded)**
+- Pros: Distributed, consistent, good for multi-VM scenarios
+- Cons: Heavy dependency, overkill for single machine
+- Only relevant for future multi-VM per physical machine scenarios
+
+**Decision: SQLite (Option B)**
+- **Queryability**: Can SSH in and query specific state, filter results, check timing
+- **Debugging**: When setup fails, can quickly identify which step and when
+- **Atomic writes**: Built-in transaction support prevents corruption
+- **Future-proof**: Can add logs, metrics, multiple tables as needed
+- **Ubiquitous**: sqlite3 CLI is available on all Unix systems
+- The slight complexity of SQL schema is worth the debugging benefits
+
+**SQLite Schema (Draft):**
+
+```sql
+-- Machine state table (singleton - one row)
+CREATE TABLE machine_state (
+  machine_id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  state TEXT NOT NULL,  -- provisioning, image_installing, ready, running, stopping, terminated
+  created_at TEXT NOT NULL,  -- ISO8601 timestamp
+  updated_at TEXT NOT NULL
+);
+
+-- Image installation state (singleton - one row if image is used)
+CREATE TABLE image_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),  -- Enforce single row
+  image_id TEXT NOT NULL,
+  image_type TEXT NOT NULL,  -- ami, docker
+  state TEXT NOT NULL,  -- provisioning, ready
+  started_at TEXT,
+  installed_at TEXT
+);
+
+-- Setup steps tracking (multiple rows)
+CREATE TABLE setup_steps (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  step TEXT NOT NULL,  -- install_homebrew, install_xcode, register_runner
+  status TEXT NOT NULL,  -- pending, in_progress, completed, failed
+  started_at TEXT,
+  completed_at TEXT,
+  error_message TEXT,
+  seq INTEGER NOT NULL  -- Order of execution
+);
+
+CREATE INDEX idx_setup_steps_status ON setup_steps(status);
+CREATE INDEX idx_setup_steps_seq ON setup_steps(seq);
+
+-- Runner registration state (singleton - one row)
+CREATE TABLE runner_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),  -- Enforce single row
+  registered BOOLEAN NOT NULL DEFAULT 0,
+  runner_id TEXT,
+  registration_token TEXT,  -- TODO: Encrypt?
+  labels TEXT,  -- JSON array: ["macos", "xcode-15"]
+  registered_at TEXT
+);
+```
+
+**Example Elixir representation after reading from SQLite:**
+
+```elixir
+# Read from SQLite via SSH, construct Machine struct
+%Machine{
+  id: "machine-uuid",
+  tenant_id: "tenant-123",
+  provider_id: "provider-456",
+  state: :image_installing,
+  # ... other fields from provider API ...
+
+  # Enriched from SQLite:
+  image: %{
+    id: "ami-123abc",
+    type: :ami,
+    state: :provisioning,
+    installed_at: nil
+  },
+
+  setup_progress: [
+    %{step: "install_homebrew", status: :completed, started_at: "...", completed_at: "..."},
+    %{step: "install_xcode", status: :in_progress, started_at: "...", completed_at: nil},
+    %{step: "register_runner", status: :pending, started_at: nil, completed_at: nil}
+  ]
+}
+```
+
+**Implementation Flow:**
+
+```
+1. Provider.provision() creates machine in cloud
+   → Returns Machine struct with basic info from provider API
+   → State: :provisioning, SSH not accessible yet
+
+2. Wait for SSH to become accessible (poll/retry)
+   → Once accessible, initialize state persistence
+   → Create /var/lib/nimbus/state.db (SQLite) with schema
+   → Insert initial state: machine_id, tenant_id, provider_id, state: :provisioning
+
+3. Begin setup process
+   → Update state to :image_installing
+   → Record setup steps as they progress
+   → State file tracks: current step, progress, timestamps
+
+4. Setup completes
+   → Update state to :ready
+   → Record completion timestamp
+
+5. get_machine() / list_machines() enriches data
+   → Query provider API for basic info (running, IP, etc.)
+   → If SSH-accessible: query state.db and merge with provider data
+   → If SSH-unavailable: return provider data only (fallback)
+   → Example query: `ssh machine "sqlite3 /var/lib/nimbus/state.db 'SELECT * FROM machine_state'"`
+```
+
+**Open Questions:**
+
+1. **State initialization timing**: Should we initialize state file immediately after SSH becomes available, or wait until setup begins?
+2. **State encryption**: Should sensitive data (runner tokens, etc.) be encrypted in the state file?
+3. **State backup**: Should we periodically sync state to integrator's storage for disaster recovery?
+4. ~~**State format**: JSON vs SQLite vs other?~~ **DECIDED**: JSON with atomic writes (see above)
+5. **State location**: `/var/lib/nimbus/` vs `/opt/nimbus/` vs home directory?
+6. **Handling missing state**: If state file is missing/corrupted, do we recreate from provider API + reinitialize?
+7. **Local provider**: How do we handle state for local machines without actual SSH? (Mock file in temp directory?)
+
+**Implementation Notes (For Later):**
+
+```elixir
+# SQLite operations via SSH
+defmodule Nimbus.Machine.State do
+  @state_db "/var/lib/nimbus/state.db"
+
+  # Initialize database with schema
+  def init_via_ssh(machine) do
+    commands = [
+      "mkdir -p /var/lib/nimbus",
+      "sqlite3 #{@state_db} '#{create_schema_sql()}'"
+    ]
+
+    Enum.each(commands, fn cmd ->
+      Nimbus.Provider.Local.exec_command(machine, cmd)
+    end)
+  end
+
+  # Update machine state
+  def update_state_via_ssh(machine, state) do
+    sql = """
+    UPDATE machine_state
+    SET state = '#{state}', updated_at = datetime('now')
+    WHERE machine_id = '#{machine.id}'
+    """
+
+    exec_sql_via_ssh(machine, sql)
+  end
+
+  # Read machine state
+  def read_state_via_ssh(machine) do
+    sql = "SELECT * FROM machine_state"
+
+    case exec_sql_via_ssh(machine, sql) do
+      {:ok, output} -> parse_sqlite_output(output)
+      error -> error
+    end
+  end
+
+  defp exec_sql_via_ssh(machine, sql) do
+    cmd = "sqlite3 #{@state_db} \"#{escape_sql(sql)}\""
+    Nimbus.Provider.Local.exec_command(machine, cmd)
+  end
+end
+```
+
+All database operations will be executed via SSH commands, not direct database connections.
 

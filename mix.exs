@@ -43,6 +43,12 @@ defmodule Nimbus.MixProject do
       # Telemetry
       {:telemetry, "~> 1.2"},
 
+      # HTTP client
+      {:req, "~> 0.5"},
+
+      # JSON parsing
+      {:jason, "~> 1.4"},
+
       # Process management
       {:muontrap, "~> 1.5"},
 
