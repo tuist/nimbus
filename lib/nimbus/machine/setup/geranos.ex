@@ -138,37 +138,35 @@ defmodule Nimbus.Machine.Setup.Geranos do
         {:ok, binary_path}
 
       {:ok, false} ->
-        cond do
-          String.ends_with?(download_url, ".tar.gz") ->
-            archive_path = Path.join(bin_path, "geranos.tar.gz")
+        if String.ends_with?(download_url, ".tar.gz") do
+          archive_path = Path.join(bin_path, "geranos.tar.gz")
 
-            result =
-              with {:ok, _} <-
-                     exec_command(
-                       machine,
-                       "curl -L -o #{archive_path} #{download_url}",
-                       timeout: 300_000
-                     ),
-                   {:ok, _} <-
-                     exec_command(
-                       machine,
-                       "tar -xzf #{archive_path} -C #{bin_path} geranos"
-                     ) do
-                {:ok, binary_path}
-              end
-
-            _ = exec_command(machine, "rm -f #{archive_path}")
-            result
-
-          true ->
+          result =
             with {:ok, _} <-
                    exec_command(
                      machine,
-                     "curl -L -o #{binary_path} #{download_url}",
+                     "curl -L -o #{archive_path} #{download_url}",
                      timeout: 300_000
+                   ),
+                 {:ok, _} <-
+                   exec_command(
+                     machine,
+                     "tar -xzf #{archive_path} -C #{bin_path} geranos"
                    ) do
               {:ok, binary_path}
             end
+
+          _ = exec_command(machine, "rm -f #{archive_path}")
+          result
+        else
+          with {:ok, _} <-
+                 exec_command(
+                   machine,
+                   "curl -L -o #{binary_path} #{download_url}",
+                   timeout: 300_000
+                 ) do
+            {:ok, binary_path}
+          end
         end
 
       error ->
