@@ -29,7 +29,6 @@ defmodule Nimbus.Machine.Setup.Geranos do
 
   alias Nimbus.Machine
   alias Nimbus.Machine.Connection
-  alias Nimbus.Provider.Local
   alias Nimbus.Telemetry
 
   require Telemetry
@@ -87,6 +86,54 @@ defmodule Nimbus.Machine.Setup.Geranos do
           {error, Map.put(metadata, :error, reason)}
       end
     end)
+  end
+
+  @doc """
+  Returns information about the Geranos installation including available images.
+
+  Returns `{:ok, map}` with version, path, and images if installed on macOS.
+  Returns `{:ok, :not_available}` on non-macOS systems.
+  Returns `{:ok, :not_installed}` if Geranos is not installed.
+
+  ## Examples
+
+      iex> machine = %Nimbus.Machine{os: :macos, ...}
+      iex> Nimbus.Machine.Setup.Geranos.info(machine)
+      {:ok, %{version: "0.7.5", path: "/path/to/geranos", images: [...]}}
+
+      iex> machine = %Nimbus.Machine{os: :linux, ...}
+      iex> Nimbus.Machine.Setup.Geranos.info(machine)
+      {:ok, :not_available}
+  """
+  @spec info(Machine.t()) :: {:ok, map() | :not_available | :not_installed} | {:error, term()}
+  def info(%Machine{os: os}) when os != :macos do
+    {:ok, :not_available}
+  end
+
+  def info(%Machine{os: :macos} = machine) do
+    with {:ok, install_path} <- Connection.xdg_data_home(machine, @install_subpath),
+         binary_path = Path.join([install_path, "bin", "geranos"]),
+         {:ok, true} <- Connection.file_exists?(machine, binary_path) do
+      version_result = get_geranos_version(machine, binary_path)
+      images_result = get_geranos_images(machine, binary_path)
+
+      version =
+        case version_result do
+          {:ok, v} -> v
+          {:error, _} -> :unknown
+        end
+
+      images =
+        case images_result do
+          {:ok, imgs} -> imgs
+          {:error, _} -> []
+        end
+
+      {:ok, %{version: version, path: binary_path, images: images}}
+    else
+      {:ok, false} -> {:ok, :not_installed}
+      {:error, _} -> {:ok, :not_installed}
+    end
   end
 
   # Private functions
@@ -198,15 +245,53 @@ defmodule Nimbus.Machine.Setup.Geranos do
     Enum.any?(["geranos-darwin-", "geranos_Darwin_"], &String.starts_with?(name, &1))
   end
 
-  # Execute command based on machine provider type
-  defp exec_command(machine, command, opts \\ [])
+  defp get_geranos_version(%Machine{} = machine, binary_path) do
+    case Connection.exec(machine, "#{binary_path} --help", timeout: 10_000) do
+      {:ok, output} ->
+        # Extract version from output (first line)
+        version =
+          output
+          |> String.split("\n", parts: 2)
+          |> List.first()
+          |> String.trim()
 
-  defp exec_command(%Machine{provider_metadata: %{type: :local}} = machine, command, opts) do
-    Local.exec_command(machine, command, opts)
+        {:ok, version}
+
+      {:error, _} = error ->
+        error
+    end
   end
 
-  # For future SSH-based execution
-  defp exec_command(%Machine{} = _machine, _command, _opts) do
-    {:error, :ssh_not_implemented}
+  defp get_geranos_images(%Machine{} = machine, binary_path) do
+    case Connection.exec(machine, "#{binary_path} list", timeout: 30_000) do
+      {:ok, output} ->
+        images = parse_geranos_list_output(output)
+        {:ok, images}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp parse_geranos_list_output(output) do
+    output
+    |> String.split("\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.reject(&String.starts_with?(&1, "#"))
+    |> Enum.map(fn line ->
+      # Parse lines like: "macos-14.1-arm64  /path/to/image.ipsw"
+      case String.split(line, ~r/\s+/, parts: 2) do
+        [name, path] -> %{name: name, path: path}
+        [name] -> %{name: name, path: nil}
+        _ -> nil
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  # Execute command via Connection abstraction
+  defp exec_command(%Machine{} = machine, command, opts \\ []) do
+    Connection.exec(machine, command, opts)
   end
 end
