@@ -29,7 +29,6 @@ defmodule Nimbus.Machine.Setup.Curie do
 
   alias Nimbus.Machine
   alias Nimbus.Machine.Connection
-  alias Nimbus.Provider.Local
   alias Nimbus.Telemetry
 
   require Telemetry
@@ -88,6 +87,45 @@ defmodule Nimbus.Machine.Setup.Curie do
           {error, Map.put(metadata, :error, reason)}
       end
     end)
+  end
+
+  @doc """
+  Returns information about the Curie installation.
+
+  Returns `{:ok, map}` with version and path if installed on macOS.
+  Returns `{:ok, :not_available}` on non-macOS systems.
+  Returns `{:ok, :not_installed}` if Curie is not installed.
+
+  ## Examples
+
+      iex> machine = %Nimbus.Machine{os: :macos, ...}
+      iex> Nimbus.Machine.Setup.Curie.info(machine)
+      {:ok, %{version: "0.4.0", path: "/path/to/curie"}}
+
+      iex> machine = %Nimbus.Machine{os: :linux, ...}
+      iex> Nimbus.Machine.Setup.Curie.info(machine)
+      {:ok, :not_available}
+  """
+  @spec info(Machine.t()) :: {:ok, map() | :not_available | :not_installed} | {:error, term()}
+  def info(%Machine{os: os}) when os != :macos do
+    {:ok, :not_available}
+  end
+
+  def info(%Machine{os: :macos} = machine) do
+    with {:ok, install_path} <- Connection.xdg_data_home(machine, @install_subpath),
+         binary_path = Path.join([install_path, "bin", "curie"]),
+         {:ok, true} <- Connection.file_exists?(machine, binary_path) do
+      case get_curie_version(machine, binary_path) do
+        {:ok, version} ->
+          {:ok, %{version: version, path: binary_path}}
+
+        {:error, _} ->
+          {:ok, %{version: :unknown, path: binary_path}}
+      end
+    else
+      {:ok, false} -> {:ok, :not_installed}
+      {:error, _} -> {:ok, :not_installed}
+    end
   end
 
   # Private functions
@@ -237,15 +275,25 @@ defmodule Nimbus.Machine.Setup.Curie do
   defp arch_tokens(:arm64), do: ["arm64"]
   defp arch_tokens(:x86_64), do: ["x86_64", "amd64"]
 
-  # Execute command based on machine provider type
-  defp exec_command(machine, command, opts \\ [])
+  defp get_curie_version(%Machine{} = machine, binary_path) do
+    case Connection.exec(machine, "#{binary_path} --help", timeout: 10_000) do
+      {:ok, output} ->
+        # Extract version from output (first line)
+        version =
+          output
+          |> String.split("\n", parts: 2)
+          |> List.first()
+          |> String.trim()
 
-  defp exec_command(%Machine{provider_metadata: %{type: :local}} = machine, command, opts) do
-    Local.exec_command(machine, command, opts)
+        {:ok, version}
+
+      {:error, _} = error ->
+        error
+    end
   end
 
-  # For future SSH-based execution
-  defp exec_command(%Machine{} = _machine, _command, _opts) do
-    {:error, :ssh_not_implemented}
+  # Execute command via Connection abstraction
+  defp exec_command(%Machine{} = machine, command, opts \\ []) do
+    Connection.exec(machine, command, opts)
   end
 end
