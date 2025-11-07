@@ -52,8 +52,7 @@ defmodule Nimbus.Machine.Setup.GeranosTest do
     }
   end
 
-  describe "install/1 - integration" do
-    @tag :integration
+  describe "install/1 - with real network" do
     @tag timeout: 180_000
     test "downloads and installs geranos on macOS", %{tmp_dir: tmp_dir} do
       if :os.type() == {:unix, :darwin} do
