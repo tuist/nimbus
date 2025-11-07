@@ -164,11 +164,31 @@ defmodule Nimbus.Provider.Local do
           {:ok, output :: String.t()} | {:error, exit_code :: integer()}
   def exec_command(machine, command, opts \\ [])
 
-  def exec_command(%Machine{provider_metadata: %{type: :local}}, command, opts) do
+  def exec_command(%Machine{provider_metadata: %{type: :local} = metadata}, command, opts) do
     # Default timeout of 60 seconds if not specified
     timeout = Keyword.get(opts, :timeout, 60_000)
 
-    case MuonTrap.cmd("sh", ["-c", command], into: "", stderr_to_stdout: true, timeout: timeout) do
+    env_from_metadata =
+      metadata
+      |> Map.get(:env, %{})
+      |> normalize_env()
+
+    env_from_opts =
+      opts
+      |> Keyword.get(:env, %{})
+      |> normalize_env()
+
+    env =
+      env_from_metadata
+      |> Map.merge(env_from_opts)
+      |> Map.to_list()
+
+    case MuonTrap.cmd("sh", ["-c", command],
+           into: "",
+           stderr_to_stdout: true,
+           timeout: timeout,
+           env: env
+         ) do
       {output, 0} ->
         {:ok, output}
 
@@ -183,4 +203,19 @@ defmodule Nimbus.Provider.Local do
   def exec_command(%Machine{}, _command, _opts) do
     {:error, :not_local_machine}
   end
+
+  defp normalize_env(env) when is_map(env) do
+    env
+    |> Map.new(fn {key, value} -> {to_string(key), to_string(value)} end)
+  end
+
+  defp normalize_env(env) when is_list(env) do
+    env
+    |> Map.new(fn
+      {key, value} -> {to_string(key), to_string(value)}
+      key when is_binary(key) -> {key, ""}
+    end)
+  end
+
+  defp normalize_env(_), do: %{}
 end
