@@ -27,7 +27,6 @@ defmodule Nimbus.Machine.Setup.GitHubRunner do
 
   alias Nimbus.Machine
   alias Nimbus.Machine.Connection
-  alias Nimbus.Provider.Local
   alias Nimbus.Telemetry
 
   require Telemetry
@@ -73,6 +72,36 @@ defmodule Nimbus.Machine.Setup.GitHubRunner do
           {error, Map.put(metadata, :error, reason)}
       end
     end)
+  end
+
+  @doc """
+  Returns information about the GitHub Actions runner installation.
+
+  Returns `{:ok, map}` with version and path if installed.
+  Returns `{:ok, :not_installed}` if not found.
+
+  ## Examples
+
+      iex> machine = %Nimbus.Machine{os: :macos, ...}
+      iex> Nimbus.Machine.Setup.GitHubRunner.info(machine)
+      {:ok, %{version: "2.321.0", path: "/path/to/runner"}}
+  """
+  @spec info(Machine.t()) :: {:ok, map() | :not_installed} | {:error, term()}
+  def info(%Machine{} = machine) do
+    with {:ok, install_path} <- Connection.xdg_data_home(machine, @install_subpath),
+         run_script = Path.join(install_path, "run.sh"),
+         {:ok, true} <- Connection.file_exists?(machine, run_script) do
+      case get_runner_version(machine, run_script) do
+        {:ok, version} ->
+          {:ok, %{version: version, path: install_path}}
+
+        {:error, _} ->
+          {:ok, %{version: :unknown, path: install_path}}
+      end
+    else
+      {:ok, false} -> {:ok, :not_installed}
+      {:error, _} -> {:ok, :not_installed}
+    end
   end
 
   # Private functions
@@ -183,15 +212,25 @@ defmodule Nimbus.Machine.Setup.GitHubRunner do
   defp platform_string(:linux, :arm64), do: "linux-arm64"
   defp platform_string(:linux, :x86_64), do: "linux-x64"
 
-  # Execute command based on machine provider type
-  defp exec_command(machine, command, opts \\ [])
+  defp get_runner_version(%Machine{} = machine, run_script) do
+    case Connection.exec(machine, "#{run_script} --version", timeout: 10_000) do
+      {:ok, output} ->
+        # Extract version from output (first line)
+        version =
+          output
+          |> String.split("\n", parts: 2)
+          |> List.first()
+          |> String.trim()
 
-  defp exec_command(%Machine{provider_metadata: %{type: :local}} = machine, command, opts) do
-    Local.exec_command(machine, command, opts)
+        {:ok, version}
+
+      {:error, _} = error ->
+        error
+    end
   end
 
-  # For future SSH-based execution
-  defp exec_command(%Machine{} = _machine, _command, _opts) do
-    {:error, :ssh_not_implemented}
+  # Execute command via Connection abstraction
+  defp exec_command(%Machine{} = machine, command, opts \\ []) do
+    Connection.exec(machine, command, opts)
   end
 end
