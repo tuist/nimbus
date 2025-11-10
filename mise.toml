@@ -4,4 +4,5 @@ lockfile = true
 [tools]
 elixir = "latest"
 erlang = "latest"
+git-cliff = "latest"
 "npm:@anthropic-ai/claude-code" = "latest"

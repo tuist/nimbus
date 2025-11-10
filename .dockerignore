@@ -1,0 +1,41 @@
+# Git
+.git
+.gitignore
+
+# Mix artifacts
+/_build
+/deps
+/*.ez
+
+# Generated on crash by the VM
+erl_crash.dump
+
+# Static artifacts
+/node_modules
+
+# Ignore package manager files
+/priv/static
+
+# Test files
+/test
+/cover
+
+# Development files
+/.elixir_ls
+/.vscode
+/.mise.toml
+/mise.toml
+/.mise.lock
+
+# Documentation
+/doc
+/docs
+
+# Temporary files
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

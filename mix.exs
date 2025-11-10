@@ -23,7 +23,8 @@ defmodule Nimbus.MixProject do
           GCP,
           Azure
         ]
-      ]
+      ],
+      releases: releases()
     ]
   end
 
@@ -52,9 +53,29 @@ defmodule Nimbus.MixProject do
       # Process management
       {:muontrap, "~> 1.5"},
 
+      # Portable executable builder
+      {:burrito, "~> 1.0", only: :prod},
+
       # Code quality and testing
       {:quokka, "~> 2.11", only: [:dev, :test], runtime: false},
       {:mimic, "~> 1.11", only: :test}
+    ]
+  end
+
+  defp releases do
+    [
+      nimbus: [
+        steps: [:assemble, &Burrito.wrap/1],
+        burrito: [
+          targets: [
+            macos_aarch64: [os: :darwin, cpu: :aarch64],
+            macos_x86_64: [os: :darwin, cpu: :x86_64],
+            linux_x86_64: [os: :linux, cpu: :x86_64],
+            linux_aarch64: [os: :linux, cpu: :aarch64],
+            windows_x86_64: [os: :windows, cpu: :x86_64]
+          ]
+        ]
+      ]
     ]
   end
 end
