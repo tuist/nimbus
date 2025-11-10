@@ -1,6 +1,6 @@
 # ☁️ Nimbus
 
-Nimbus is a daemon that provisions and manages the infrastructure (runners, cache, and more) for build systems and test runners to operate optimally. It acts as a glue layer between build and test environments (CI systems, agents, developer machines) and cloud infrastructure, enabling teams to run their builds efficiently anywhere.
+Nimbus is a daemon that provisions and manages the infrastructure (runners, cache, and more) for build systems and test runners to operate optimally. It acts as a glue layer between build and test environments (CI systems, agents, developer machines) and cloud infrastructure, enabling teams to run builds, tests, and custom workflows efficiently and safely from anywhere.
 
 ## 📋 Overview
 
