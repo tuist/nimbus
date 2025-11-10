@@ -2,33 +2,52 @@
 
 ## Overview
 
-Nimbus is an Elixir runtime application that provisions and manages environments as CI runners. It acts as a glue layer between Git forges (like GitHub, GitLab) and cloud providers, enabling on-demand environment provisioning for continuous integration workloads.
+Nimbus is a standalone Elixir daemon that provisions and manages elastic CI runners. It acts as a glue layer between Git forges (like GitHub, GitLab) and cloud providers, enabling on-demand environment provisioning for continuous integration workloads.
 
 ## Purpose
 
-Nimbus powers "Tuist Runners" and is integrated into the Tuist server (https://github.com/tuist/tuist). It provides a flexible, storage-agnostic architecture that allows the integrating application to provide its own storage implementation.
+Nimbus provides standalone value as an open-source tool for elastic self-hosted runners, while creating a natural pathway to Tuist's managed offerings. Similar to how Grafana Cloud hosts Grafana instances, Tuist can host Nimbus daemons while also supporting self-hosted deployments.
 
 ## Key Characteristics
 
-- **Cloud Provider Integration**: Interfaces with various cloud providers to provision CI runner environments
-- **Git Forge Integration**: Connects with Git forges to receive and process CI job requests
-- **Storage Abstraction**: Expects the integrating application to provide storage implementation
-- **On-Demand Provisioning**: Provisions environments on the fly as needed
+- **Standalone Value**: Useful on its own for elastic CI runners on any cloud provider
+- **Per-Tenant Daemon**: Each tenant runs their own isolated Nimbus daemon process
+- **Flexible Deployment**: Can be self-hosted or managed by Tuist
+- **Cloud Provider Integration**: Interfaces with various cloud providers (AWS, GCP, Hetzner, etc.)
+- **Git Forge Integration**: Connects with Git forges (GitHub, GitLab, Forgejo)
+- **Optional UI**: Control plane UI available in hosted mode, optional for self-hosted
+
+## Deployment Models
+
+### Stage 1: Self-Hosted (Open Source)
+Users run Nimbus daemon on their infrastructure, managing everything themselves. Value: Cost savings and flexibility using their cloud provider contracts.
+
+### Stage 2: Managed Control Plane (Tuist Premium)
+Tuist hosts and manages the Nimbus daemon and provides UI. Users bring their own cloud credentials. Value: Less operational burden, monitoring, and optimization recommendations.
+
+### Stage 3: Fully Managed (Tuist Cloud)
+Tuist provides complete infrastructure - users just consume runners. Value: Zero-config CI runners with no infrastructure management.
+
+### Stage 4: Premium Platform (Tuist Enterprise)
+Full Tuist platform including runners, caching, build insights, and optimization. Value: Complete build optimization solution.
 
 ## Target Use Cases
 
-Nimbus is ideal for companies that:
+Nimbus is ideal for:
 
-1. **Accept Extra Latency**: Are comfortable with the latency involved in provisioning environments on demand
-2. **Prefer Cost Control over Speed**: Especially relevant for macOS runners where elasticity can be traded for better cost control
-3. **Have Cloud Provider Contracts**: Want to reuse existing contracts with cloud providers like AWS
+1. **Teams with Cloud Contracts**: Want to use AWS/GCP/Azure credits for CI runners
+2. **Multi-Forge Users**: Need runners across GitHub, GitLab, and self-hosted forges
+3. **Cost-Conscious Teams**: Prefer cost control over maximum speed (especially macOS)
+4. **Infrastructure Control**: Want self-hosted runners without manual maintenance
 
 ## Architecture
 
-- **Type**: Elixir application library
-- **Integration Model**: Embedded into host applications (like Tuist server)
-- **Storage**: Abstracted - provided by the integrating application
-- **Runtime**: Elixir/OTP for reliability and concurrency
+- **Type**: Standalone Elixir daemon (one per tenant)
+- **Deployment**: Can run standalone or orchestrated by Tuist control plane
+- **API**: RESTful API for control plane integration and management
+- **Storage**: Per-daemon SQLite or provided storage connection string
+- **Runtime**: Elixir/OTP for reliability, concurrency, and efficient resource usage
+- **Hibernation**: Inactive daemons can hibernate to reduce costs (~$0.10/tenant/month)
 
 ## Project Structure
 

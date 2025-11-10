@@ -2,31 +2,101 @@
 
 ## Overview
 
-Nimbus is an Elixir library for provisioning and managing CI runner environments. It integrates with cloud providers (AWS, Hetzner, etc.) and Git forges (GitHub, GitLab, Forgejo) to create on-demand runner infrastructure.
+Nimbus is a standalone Elixir daemon for provisioning and managing elastic CI runners. It provides standalone value as an open-source tool while creating a pathway to Tuist's managed offerings (similar to Grafana Cloud model).
 
-## Architecture
+## Product Vision
+
+**Standalone Value Proposition**: "Elastic CI runners for any Git forge, using your cloud provider"
+
+### Adoption Pathway
+
+| Stage | Deployment | What Tuist Provides | User Value |
+|-------|-----------|---------------------|------------|
+| **Stage 1: Discovery** | Self-hosted daemon | OSS tool, docs | Cost savings + cloud credit usage |
+| **Stage 2: Simplification** | Tuist-hosted daemon + control plane | Managed daemon, UI, monitoring | Less ops burden |
+| **Stage 3: Full Managed** | Tuist infrastructure | Complete runner infrastructure | Zero-config convenience |
+| **Stage 4: Premium** | Tuist platform | Runners + caching + insights | Full build optimization |
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│            Tuist Control Plane (Optional)               │
+│  - Multi-tenant daemon orchestration                    │
+│  - Billing/metering                                     │
+│  - UI dashboard                                         │
+│  - Daemon hibernation (inactive → $0.001/month)        │
+│  - Optimization recommendations                         │
+└─────────────────┬───────────────────────────────────────┘
+                  │ HTTP API
+┌─────────────────▼───────────────────────────────────────┐
+│         Nimbus Daemon (per tenant, isolated)            │
+│  - Git forge integration (GitHub, GitLab, Forgejo)     │
+│  - Cloud provider integration (AWS, GCP, Hetzner)      │
+│  - Runner lifecycle management                         │
+│  - Job queue management                                │
+│  - Health monitoring & telemetry                       │
+│  - RESTful API for control plane                       │
+│  - Per-daemon storage (SQLite or provided DB)          │
+└─────────────────┬───────────────────────────────────────┘
+                  │ Provisions
+┌─────────────────▼───────────────────────────────────────┐
+│          Cloud Provider (AWS/GCP/Hetzner/etc)          │
+│  - EC2/Compute Engine instances                        │
+│  - Ephemeral environments                              │
+│  - Auto-cleanup                                        │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Economics (Hosted Mode)
+
+**Per-Tenant Daemon Cost** (EC2 bin packing on t4g.large):
+- Active daemon (10% of tenants): ~$0.60/month
+- Hibernated daemon (90% of tenants): ~$0.001/month (state in S3)
+- **Blended cost**: ~$0.10/tenant/month
+
+**Pricing**: $10/month per tenant → ~95% gross margin
+
+**Hibernation Strategy**:
+- Daemon hibernates after 15 minutes of inactivity
+- State saved to S3 (~$0.001/month storage)
+- Cold start on job arrival: 1-2 seconds
+- 50 daemons per t4g.large instance ($48/month)
+
+## Technical Architecture
 
 ### Core Principles
 
-1. **Storage Abstraction**: The integrating application provides storage implementation via behaviors
-2. **Multi-tenant**: Each tenant has their own providers, forge configuration, and machines
+1. **Standalone Daemon**: Each tenant gets an isolated Elixir process/daemon
+2. **Per-Daemon Storage**: SQLite by default, or configurable storage connection
 3. **Unified Machine Model**: Abstract away provider-specific details (e.g., AWS dedicated hosts)
-4. **Telemetry-driven**: Emit events for all significant operations that integrators can subscribe to
+4. **Telemetry-driven**: Emit events for all significant operations
 5. **Lean State**: Minimize stored data - prefer querying cloud provider APIs with tags
+6. **API-First**: RESTful API for control plane integration and management
+7. **Hibernation Support**: Daemons can hibernate and restore state for cost efficiency
 
 ### Module Structure
 
 ```
 Nimbus
-├── Nimbus.Application
-├── Nimbus.Storage (behavior - implemented by integrator)
-│   ├── get_tenant(tenant_id)
-│   ├── list_tenant_providers(tenant_id)
-│   └── get_tenant_forge_config(tenant_id)
-├── Nimbus.CloudProvider (behavior)
-│   ├── Nimbus.CloudProvider.AWS (Phase 1)
-│   └── Nimbus.CloudProvider.Hetzner (Future)
-├── Nimbus.Forge
+├── Nimbus.Application (OTP app, supervision tree)
+├── Nimbus.Daemon (per-tenant daemon logic)
+│   ├── Nimbus.Daemon.Supervisor (per-daemon supervision tree)
+│   ├── Nimbus.Daemon.State (hibernation/restore)
+│   └── Nimbus.Daemon.Config (per-daemon configuration)
+├── Nimbus.API (HTTP API for control plane)
+│   ├── Nimbus.API.Router (endpoint routing)
+│   ├── Nimbus.API.Health (health checks)
+│   └── Nimbus.API.Machines (machine management)
+├── Nimbus.Storage (per-daemon storage)
+│   ├── Nimbus.Storage.SQLite (default implementation)
+│   └── Nimbus.Storage.Postgres (optional for larger deployments)
+├── Nimbus.Provider (behavior for cloud providers)
+│   ├── Nimbus.Provider.AWS (Phase 1)
+│   ├── Nimbus.Provider.Hetzner (Future)
+│   ├── Nimbus.Provider.GCP (Future)
+│   └── Nimbus.Provider.Local (testing/development)
+├── Nimbus.Forge (Git forge integrations)
 │   ├── Nimbus.Forge.GitHub (Phase 1)
 │   ├── Nimbus.Forge.GitLab (Future)
 │   └── Nimbus.Forge.Forgejo (Future)
@@ -34,24 +104,41 @@ Nimbus
 │   ├── Nimbus.Machine.Provisioner
 │   ├── Nimbus.Machine.Lifecycle
 │   └── Nimbus.Machine.SSH
-└── Nimbus.Telemetry
+├── Nimbus.Telemetry (instrumentation)
+└── Nimbus.CLI (command-line interface for self-hosted)
 ```
 
 ### Data Models
 
-#### Tenant
+**Note**: Each daemon represents a single tenant, so tenant_id is a daemon-level configuration rather than a data model.
+
+#### Daemon Configuration
 ```elixir
-%Tenant{
-  id: "tenant-123",
-  name: "Acme Corp"
+# Loaded at daemon startup from config file or environment
+%Nimbus.Daemon.Config{
+  daemon_id: "daemon-uuid",
+  tenant_id: "tenant-123",  # For control plane tracking
+  tenant_name: "Acme Corp",
+
+  storage: %{
+    type: :sqlite,  # or :postgres
+    path: "/var/lib/nimbus/nimbus.db"  # or connection string
+  },
+
+  api: %{
+    port: 4000,
+    host: "0.0.0.0",
+    secret_key_base: "..."
+  }
 }
 ```
 
 #### Provider Configuration
 ```elixir
+# Stored in per-daemon database, can have multiple providers
 %ProviderConfig{
   id: "provider-456",
-  tenant_id: "tenant-123",
+  name: "AWS US-East",
   type: :aws,  # :aws, :hetzner, :gcp, :azure
   credentials: %{
     access_key_id: "AKIA...",
@@ -59,15 +146,16 @@ Nimbus
   },
   config: %{
     region: "us-east-1",
-    tags: %{"managed_by" => "nimbus"}
+    tags: %{"managed_by" => "nimbus", "tenant" => "tenant-123"}
   }
 }
 ```
 
 #### Forge Configuration
 ```elixir
+# Stored in per-daemon database, typically one per daemon
 %ForgeConfig{
-  tenant_id: "tenant-123",
+  id: "forge-789",
   type: :github,  # :github, :gitlab, :forgejo
   credentials: %{
     # GitHub App
@@ -77,15 +165,16 @@ Nimbus
     # Or for GitLab/Forgejo
     # token: "glpat-..."
   },
-  org: "tuist"  # or group/instance URL for GitLab/Forgejo
+  org: "tuist",  # or group/instance URL for GitLab/Forgejo
+  webhook_secret: "..."
 }
 ```
 
 #### Machine
 ```elixir
+# Stored in per-daemon database
 %Machine{
   id: "machine-uuid",
-  tenant_id: "tenant-123",
   provider_id: "provider-456",
 
   # Unified fields
@@ -123,32 +212,36 @@ Nimbus
 - macOS machines go through `:provisioning` → `:image_installing` → `:ready`
 - Future: May extend to support multiple VMs per physical machine (2 VMs/Mac limit)
 
-### Storage Behavior Contract
+### Storage Implementation
 
-The integrating application implements:
+Each daemon has its own storage (SQLite by default, Postgres optional):
 
 ```elixir
 defmodule Nimbus.Storage do
-  @callback get_tenant(tenant_id :: String.t()) ::
-    {:ok, Tenant.t()} | {:error, :not_found}
+  @callback list_providers() :: {:ok, [ProviderConfig.t()]} | {:error, term()}
+  @callback get_provider(provider_id :: String.t()) :: {:ok, ProviderConfig.t()} | {:error, :not_found}
+  @callback create_provider(attrs :: map()) :: {:ok, ProviderConfig.t()} | {:error, term()}
+  @callback update_provider(provider_id :: String.t(), attrs :: map()) :: {:ok, ProviderConfig.t()} | {:error, term()}
+  @callback delete_provider(provider_id :: String.t()) :: :ok | {:error, term()}
 
-  @callback list_tenant_providers(tenant_id :: String.t()) ::
-    {:ok, [ProviderConfig.t()]} | {:error, term()}
+  @callback get_forge_config() :: {:ok, ForgeConfig.t()} | {:error, :not_found}
+  @callback create_forge_config(attrs :: map()) :: {:ok, ForgeConfig.t()} | {:error, term()}
+  @callback update_forge_config(attrs :: map()) :: {:ok, ForgeConfig.t()} | {:error, term()}
 
-  @callback get_provider(provider_id :: String.t()) ::
-    {:ok, ProviderConfig.t()} | {:error, :not_found}
-
-  @callback get_tenant_forge_config(tenant_id :: String.t()) ::
-    {:ok, ForgeConfig.t()} | {:error, :not_found}
+  @callback list_machines() :: {:ok, [Machine.t()]} | {:error, term()}
+  @callback get_machine(machine_id :: String.t()) :: {:ok, Machine.t()} | {:error, :not_found}
+  @callback create_machine(attrs :: map()) :: {:ok, Machine.t()} | {:error, term()}
+  @callback update_machine(machine_id :: String.t(), attrs :: map()) :: {:ok, Machine.t()} | {:error, term()}
+  @callback delete_machine(machine_id :: String.t()) :: :ok | {:error, term()}
 end
 ```
 
-### Cloud Provider Behavior
+### Provider Behavior
 
 Each cloud provider implements:
 
 ```elixir
-defmodule Nimbus.CloudProvider do
+defmodule Nimbus.Provider do
   @callback provision(provider_config :: ProviderConfig.t(), specs :: map()) ::
     {:ok, Machine.t()} | {:error, term()}
 
@@ -158,7 +251,7 @@ defmodule Nimbus.CloudProvider do
   @callback can_terminate?(machine :: Machine.t()) ::
     {:ok, true} | {:error, :minimum_allocation_period, hours_remaining: integer()}
 
-  @callback list_machines(provider_config :: ProviderConfig.t(), tenant_id :: String.t()) ::
+  @callback list_machines(provider_config :: ProviderConfig.t()) ::
     {:ok, [Machine.t()]} | {:error, term()}
 
   @callback get_machine(provider_config :: ProviderConfig.t(), machine_id :: String.t()) ::
@@ -166,38 +259,70 @@ defmodule Nimbus.CloudProvider do
 end
 ```
 
+### Daemon HTTP API
+
+The daemon exposes a RESTful API for control plane integration and management:
+
+```
+# Health & Status
+GET  /health          → Daemon health check
+GET  /status          → Daemon status (active/hibernated, uptime, etc.)
+
+# Configuration (read-only in production, writable in dev/testing)
+GET  /config          → Daemon configuration
+GET  /providers       → List configured providers
+GET  /forge           → Forge configuration (credentials masked)
+
+# Machine Management
+POST /machines        → Provision new machine
+GET  /machines        → List all machines
+GET  /machines/:id    → Get machine details
+DELETE /machines/:id  → Terminate machine
+
+# Hibernation (for control plane)
+POST /hibernate       → Hibernate daemon (save state, shutdown)
+POST /restore         → Restore from hibernation
+
+# Telemetry
+GET  /metrics         → Prometheus-compatible metrics
+```
+
 ### Machine Lifecycle Flow
 
 ```
-1. Tenant requests machine via Nimbus.provision_machine/2
-   ├─> Validate tenant and provider
-   ├─> Get provider credentials from storage
-   └─> Call CloudProvider.provision/2
+1. Request machine via HTTP API or CLI
+   POST /machines with specs (os, arch, provider_id, labels)
+   ├─> Validate provider exists in daemon storage
+   ├─> Get provider credentials from daemon storage
+   └─> Call Provider.provision/2
 
-2. CloudProvider provisions infrastructure
+2. Provider provisions infrastructure
    AWS Mac: Allocate dedicated host → Launch instance
    AWS Linux: Launch instance
    Hetzner: Create server
-   ├─> Tag with tenant_id for discovery
+   ├─> Tag with daemon_id for discovery
    └─> Return Machine struct
 
-3. Nimbus.Machine.Lifecycle sets up runner
+3. Machine.Lifecycle sets up runner
    ├─> Wait for machine to be accessible
-   ├─> SSH into machine (using tenant's SSH key)
+   ├─> SSH into machine
    ├─> Install dependencies (homebrew, etc.)
    ├─> Download Git forge runner agent
    ├─> Get registration token from Forge API
    ├─> Register runner with forge
+   ├─> Initialize machine state file (SQLite on machine)
    └─> Emit telemetry: [:nimbus, :machine, :ready]
 
 4. Runner operates (managed by Git forge)
    ├─> Forge assigns jobs
    └─> Runner executes jobs
 
-5. Tenant requests termination via Nimbus.terminate_machine/2
+5. Request termination via HTTP API or CLI
+   DELETE /machines/:id
    ├─> Check can_terminate? (24h minimum for AWS Mac)
    ├─> Unregister runner from forge
    ├─> Terminate instance (and release host if needed)
+   ├─> Remove from daemon storage
    └─> Emit telemetry: [:nimbus, :machine, :terminated]
 ```
 
@@ -242,43 +367,109 @@ Nimbus emits telemetry events for all significant operations:
 
 Each event includes metadata like `tenant_id`, `machine_id`, `duration`, `error`, etc.
 
-## Phase 1: MVP
+### Self-Hosted CLI Experience
+
+For standalone/self-hosted deployments:
+
+```bash
+# Installation
+brew install tuist/tap/nimbus
+# or
+curl -sSL https://get.nimbus.dev | sh
+
+# Initialize daemon configuration
+nimbus init
+# Creates ~/.nimbus/config.toml with prompts for:
+# - Daemon ID/name
+# - Storage type (sqlite/postgres)
+# - API port
+# - Cloud provider credentials
+# - Git forge configuration
+
+# Start daemon
+nimbus start
+# Starts daemon on configured port (default: 4000)
+# Logs to ~/.nimbus/logs/
+# State in ~/.nimbus/nimbus.db (SQLite)
+
+# Manage providers
+nimbus provider add aws --name "AWS US-East" --region us-east-1
+nimbus provider list
+nimbus provider remove <id>
+
+# Manage machines
+nimbus machine provision --provider aws --os macos --arch arm64
+nimbus machine list
+nimbus machine get <id>
+nimbus machine terminate <id>
+
+# Daemon management
+nimbus status       # Check daemon health
+nimbus logs         # View daemon logs
+nimbus stop         # Stop daemon gracefully
+nimbus restart      # Restart daemon
+```
+
+## Phase 1: MVP (Standalone Daemon)
 
 ### Scope
 
+**Deployment Model**: Self-hosted standalone daemon
 **Cloud Provider**: AWS EC2 Mac (mac2.metal on dedicated hosts)
 **Git Forge**: GitHub (via GitHub App)
-**Machine Management**: Manual provisioning/termination by tenant
+**Storage**: SQLite (per-daemon)
+**API**: HTTP REST API + CLI
 **Features**: Basic lifecycle, 24h minimum tracking, SSH-based setup
 
 ### Implementation Tasks
 
-#### 1. Core Infrastructure
-- [ ] Set up Nimbus.Application supervision tree (deferred - not needed for MVP)
-- [x] Define Storage behavior and contracts
-- [x] Define Provider behavior (renamed from CloudProvider)
+#### 1. Core Daemon Infrastructure
+- [ ] Implement Nimbus.Daemon.Config (load from TOML/env)
+- [ ] Implement Nimbus.Daemon.Supervisor (per-daemon supervision tree)
+- [ ] Set up Nimbus.Application with OTP supervision
+- [ ] Implement Nimbus.Storage behavior
+- [ ] Implement Nimbus.Storage.SQLite (default storage)
+- [x] Define Provider behavior
 - [x] Implement Nimbus.Machine struct and core functions
 - [x] Set up telemetry with :telemetry library
 - [x] Implement Local provider for development/testing
 - [x] Add MuonTrap for process management
 
-#### 2. AWS Provider
-- [ ] Implement Nimbus.CloudProvider.AWS
+#### 2. HTTP API
+- [ ] Set up Plug/Bandit web server
+- [ ] Implement Nimbus.API.Router (endpoint routing)
+- [ ] Implement Nimbus.API.Health (health checks)
+- [ ] Implement Nimbus.API.Machines (CRUD endpoints)
+- [ ] Implement Nimbus.API.Providers (read-only endpoints)
+- [ ] Implement Nimbus.API.Config (daemon config endpoint)
+- [ ] Add authentication/authorization (API keys)
+
+#### 3. CLI
+- [ ] Set up CLI framework (mix escript or Burrito)
+- [ ] Implement `nimbus init` (interactive config setup)
+- [ ] Implement `nimbus start/stop/restart/status`
+- [ ] Implement `nimbus provider` commands
+- [ ] Implement `nimbus machine` commands
+- [ ] Implement `nimbus logs` (tail daemon logs)
+- [ ] Add shell completions (bash/zsh/fish)
+
+#### 4. AWS Provider
+- [ ] Implement Nimbus.Provider.AWS
 - [ ] Handle EC2 dedicated host allocation
 - [ ] Handle mac2.metal instance provisioning
-- [ ] Tag resources with tenant_id and nimbus metadata
+- [ ] Tag resources with daemon_id and nimbus metadata
 - [ ] Implement machine discovery via AWS API
 - [ ] Implement can_terminate? with 24h check
 - [ ] Handle host + instance cleanup
 
-#### 3. GitHub Forge Integration
+#### 5. GitHub Forge Integration
 - [ ] Implement GitHub App authentication
 - [ ] Implement runner registration token API
 - [ ] Implement runner registration API
 - [ ] Implement runner unregistration API
 - [ ] Handle API errors and retries
 
-#### 4. Machine Setup (SSH)
+#### 6. Machine Setup (SSH)
 - [x] Implement Nimbus.XDG for XDG Base Directory paths
 - [x] Implement Nimbus.Machine.Setup module
 - [x] Implement GitHub Actions runner installer
@@ -286,48 +477,104 @@ Each event includes metadata like `tenant_id`, `machine_id`, `duration`, `error`
 - [x] Implement Geranos installer (macOS only)
 - [x] Integrate setup into Local provider
 - [ ] Implement Nimbus.Machine.SSH module (for remote execution)
-- [ ] SSH connection with tenant's key
 - [ ] Configure and register runner with forge
 - [ ] Health check and verification
+- [ ] Initialize machine state file (SQLite on machine)
 
-#### 5. Public API
-- [x] `Nimbus.provision_machine(tenant_id, provider_id, specs)`
-- [x] `Nimbus.terminate_machine(tenant_id, machine_id)` (with TODO: provider lookup)
-- [x] `Nimbus.list_machines(tenant_id)`
-- [x] `Nimbus.get_machine(tenant_id, machine_id)` (with TODO: provider lookup)
-- [x] `Nimbus.can_terminate_machine?(tenant_id, machine_id)` (with TODO: provider lookup)
-
-#### 6. Testing
+#### 7. Testing
 - [x] Unit tests for XDG module
 - [x] Unit tests for Machine.Setup module (with mocked installers)
 - [ ] Unit tests for remaining core modules
 - [ ] Mocked AWS API tests
 - [ ] Mocked GitHub API tests
 - [ ] Integration tests (may require real AWS/GitHub sandbox)
-- [ ] SSH command execution tests
+- [ ] CLI integration tests
+- [ ] API endpoint tests
 
-#### 7. Documentation
+#### 8. Documentation
 - [ ] Module documentation (@moduledoc)
 - [ ] Function documentation (@doc)
-- [ ] Integration guide for host applications
-- [ ] Storage behavior implementation guide
-- [ ] Configuration examples
+- [ ] Self-hosted deployment guide
+- [ ] Configuration file documentation
+- [ ] CLI command reference
+- [ ] API endpoint reference
+- [ ] Provider setup guides (AWS, GitHub)
 
 ### Dependencies
 
 ```elixir
 # mix.exs dependencies
+
+# HTTP Server & API
+{:plug, "~> 1.15"},
+{:bandit, "~> 1.0"},  # HTTP server
+{:jason, "~> 1.4"},  # JSON encoding/decoding
+{:cors_plug, "~> 3.0"},  # CORS support
+
+# Storage
+{:ecto_sql, "~> 3.11"},
+{:ecto_sqlite3, "~> 0.14"},  # SQLite adapter
+{:postgrex, "~> 0.17"},  # Optional: Postgres adapter
+
+# Cloud Providers
 {:ex_aws, "~> 2.5"},
 {:ex_aws_ec2, "~> 2.0"},
 {:hackney, "~> 1.18"},
-{:jason, "~> 1.4"},
-{:telemetry, "~> 1.2"},
-{:req, "~> 0.4"},  # For GitHub API
+
+# Git Forges
+{:req, "~> 0.4"},  # HTTP client for GitHub/GitLab APIs
+
+# SSH & Process Management
 {:sshex, "~> 2.2"},  # For SSH operations
-{:nimble_options, "~> 1.1"}  # For config validation
+{:muontrap, "~> 1.5"},  # For process management
+
+# Configuration & Validation
+{:nimble_options, "~> 1.1"},  # Config validation
+{:toml, "~> 0.7"},  # TOML config parsing
+
+# Telemetry & Monitoring
+{:telemetry, "~> 1.2"},
+{:telemetry_metrics, "~> 0.6"},
+{:telemetry_poller, "~> 1.0"},
+
+# CLI (optional, for escript build)
+{:owl, "~> 0.9"},  # CLI framework with interactive prompts
 ```
 
-## Phase 2: Enhanced Features
+## Phase 2: Control Plane & Hibernation
+
+### Scope
+
+**New Components**:
+- Control plane orchestrator (Elixir/Phoenix app)
+- Daemon hibernation & restore logic
+- Multi-tenant daemon management
+- UI dashboard (Phoenix LiveView)
+- Billing/metering integration
+
+### Tasks
+
+#### 1. Daemon Hibernation
+- [ ] Implement Nimbus.Daemon.State.save() (persist to S3/storage)
+- [ ] Implement Nimbus.Daemon.State.restore() (load from storage)
+- [ ] POST /hibernate endpoint (graceful shutdown + save)
+- [ ] POST /restore endpoint (load state + restart)
+- [ ] Background hibernation after N minutes idle
+
+#### 2. Control Plane
+- [ ] Phoenix app for control plane
+- [ ] Daemon registry (track daemon IDs, status, endpoints)
+- [ ] Daemon lifecycle management (spawn, monitor, hibernate)
+- [ ] Proxy API requests to tenant daemons
+- [ ] LiveView dashboard (tenant overview, machines, costs)
+
+#### 3. Multi-Tenant Orchestration
+- [ ] EC2 instance management (bin packing daemons)
+- [ ] Daemon spawning via systemd/K8s
+- [ ] Health monitoring & auto-restart
+- [ ] Load balancing across orchestrator instances
+
+## Phase 3: Enhanced Features
 
 ### Warm Pools
 - [ ] Pre-provision N machines per tenant/provider
@@ -433,6 +680,33 @@ Each event includes metadata like `tenant_id`, `machine_id`, `duration`, `error`
      - macOS: Goes through image installation phase (Xcode, etc.)
    - **Future**: Can split into separate Host/VM concepts when supporting 2 VMs per physical Mac
    - **Question**: Should we cache/reuse provisioned machines with software pre-installed (warm pool), or always provision fresh?
+
+## Architectural Evolution
+
+### From Library to Standalone Daemon (January 2025)
+
+**Previous Architecture**: Nimbus was designed as an Elixir library to be embedded into host applications (like Tuist server), with storage abstraction expecting the integrator to provide implementation.
+
+**New Architecture**: Nimbus is now a standalone per-tenant daemon with:
+- **Standalone value**: Useful independently for elastic CI runners
+- **Grafana Cloud model**: Can be self-hosted or managed by Tuist
+- **Per-daemon isolation**: Each tenant gets isolated BEAM process
+- **Built-in storage**: SQLite by default, Postgres optional
+- **HTTP API + CLI**: RESTful API and command-line interface
+- **Hibernation support**: Cost-efficient for hosted deployments
+
+**Rationale**:
+- Library-only approach has no standalone value
+- Hard to market/grow adoption without independent utility
+- Per-tenant daemon enables hosted SaaS model (like Grafana Cloud)
+- Creates natural pathway: OSS → Managed control plane → Full Tuist platform
+- Better economics: ~$0.10/tenant/month with hibernation
+
+**Migration Impact**:
+- Old `Nimbus.Storage` behavior removed (storage now built-in)
+- Old `Nimbus.provision_machine(tenant_id, ...)` becomes daemon API: `POST /machines`
+- Configuration moves from host app to per-daemon config files
+- Tenant concept becomes implicit (one daemon = one tenant)
 
 ## Notes
 
