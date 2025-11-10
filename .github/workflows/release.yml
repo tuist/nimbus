@@ -50,13 +50,9 @@ jobs:
             zig_url: https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz
             zig_dir: zig-x86_64-linux-0.15.2
           - target: linux-aarch64
-            os: ubuntu-latest
+            os: ubuntu-24.04-arm
             zig_url: https://ziglang.org/download/0.15.2/zig-aarch64-linux-0.15.2.tar.xz
             zig_dir: zig-aarch64-linux-0.15.2
-          - target: windows-x86_64
-            os: windows-2022
-            zig_url: https://ziglang.org/download/0.15.2/zig-x86_64-windows-0.15.2.zip
-            zig_dir: zig-x86_64-windows-0.15.2
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,23 +63,12 @@ jobs:
           otp-version: "27.2"
           elixir-version: "1.18.1"
 
-      - name: Install Zig and XZ (Unix)
-        if: runner.os != 'Windows'
+      - name: Install Zig
         run: |
           curl -L ${{ matrix.zig_url }} | tar -xJ
           sudo mv ${{ matrix.zig_dir }} /usr/local/zig
           echo "/usr/local/zig" >> $GITHUB_PATH
           /usr/local/zig/zig version
-
-      - name: Install Zig and XZ (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "${{ matrix.zig_url }}" -OutFile "zig.zip"
-          Expand-Archive -Path "zig.zip" -DestinationPath "C:\"
-          Rename-Item "C:\${{ matrix.zig_dir }}" "C:\zig"
-          echo "C:\zig" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          & "C:\zig\zig.exe" version
 
       - name: Restore dependencies cache
         uses: actions/cache@v4
@@ -108,33 +93,17 @@ jobs:
         run: |
           mix release --overwrite
 
-      - name: Create archive (Unix)
-        if: runner.os != 'Windows'
+      - name: Create archive
         run: |
           cd burrito_out
           tar czf nimbus-${{ matrix.target }}.tar.gz nimbus_*
           mv nimbus-${{ matrix.target }}.tar.gz ..
 
-      - name: Create archive (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          cd burrito_out
-          Compress-Archive -Path nimbus_* -DestinationPath ..\nimbus-${{ matrix.target }}.zip
-
-      - name: Upload artifact (Unix)
-        if: runner.os != 'Windows'
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: nimbus-${{ matrix.target }}
           path: nimbus-${{ matrix.target }}.tar.gz
-
-      - name: Upload artifact (Windows)
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: nimbus-${{ matrix.target }}
-          path: nimbus-${{ matrix.target }}.zip
 
   docker:
     name: Build and Push Docker Image
@@ -207,11 +176,10 @@ jobs:
             - **macOS (Intel)**: `nimbus-macos-x86_64.tar.gz`
             - **Linux (x86_64)**: `nimbus-linux-x86_64.tar.gz`
             - **Linux (ARM64)**: `nimbus-linux-aarch64.tar.gz`
-            - **Windows (x86_64)**: `nimbus-windows-x86_64.zip`
 
             Extract and run:
             ```bash
-            tar xzf nimbus-*.tar.gz  # or unzip on Windows
+            tar xzf nimbus-*.tar.gz
             ./nimbus_*/bin/nimbus start
             ```
           files: artifacts/**/*

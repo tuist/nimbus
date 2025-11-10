@@ -89,17 +89,13 @@ defmodule Nimbus.MixProject do
         "linux-aarch64" ->
           [linux_aarch64: [os: :linux, cpu: :aarch64]]
 
-        "windows-x86_64" ->
-          [windows_x86_64: [os: :windows, cpu: :x86_64]]
-
         _ ->
           # Default: all targets (for local development)
           [
             macos_aarch64: [os: :darwin, cpu: :aarch64],
             macos_x86_64: [os: :darwin, cpu: :x86_64],
             linux_x86_64: [os: :linux, cpu: :x86_64],
-            linux_aarch64: [os: :linux, cpu: :aarch64],
-            windows_x86_64: [os: :windows, cpu: :x86_64]
+            linux_aarch64: [os: :linux, cpu: :aarch64]
           ]
       end
 
