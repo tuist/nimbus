@@ -1,16 +1,17 @@
 # ☁️ Nimbus
 
-Nimbus is a standalone Elixir daemon that provisions and manages elastic CI runners. It acts as a glue layer between Git forges (like GitHub, GitLab) and cloud providers, enabling on-demand environment provisioning for continuous integration workloads.
+Nimbus is a daemon that provisions and manages the infrastructure (runners, cache, and more) for build systems and test runners to operate optimally. It acts as a glue layer between Git forges and cloud providers, enabling teams to run their builds efficiently on any cloud infrastructure.
 
 ## 📋 Overview
 
-Nimbus provides standalone value as an open-source tool for elastic self-hosted runners, while creating a natural pathway to Tuist's managed offerings. Similar to how Grafana Cloud hosts Grafana instances, Tuist can host Nimbus daemons while also supporting self-hosted deployments.
+Nimbus provides standalone value as an open-source tool for infrastructure management, while creating a natural pathway to Tuist's managed offerings. Similar to how Grafana Cloud hosts Grafana instances, Tuist can host Nimbus daemons while also supporting self-hosted deployments.
 
 Key features:
 
 - **🔗 Git Forge Integration**: Connects with GitHub, GitLab, Forgejo, and other Git forges
 - **☁️ Multi-Cloud Support**: Interfaces with AWS, GCP, Hetzner, and local environments
-- **⚡ Elastic Provisioning**: On-demand CI runner provisioning for cost-effective continuous integration
+- **⚡ Elastic Infrastructure**: On-demand provisioning of runners, cache, and supporting infrastructure
+- **🎯 Build Optimization**: Designed to help build systems and test runners operate at peak efficiency
 - **🏠 Flexible Deployment**: Can be self-hosted or managed by Tuist
 - **🔒 Per-Tenant Isolation**: Each tenant runs their own isolated Nimbus daemon process
 
