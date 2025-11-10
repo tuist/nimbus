@@ -72,24 +72,24 @@ defmodule Nimbus.MixProject do
         [:assemble]
       end
 
-    # Allow specifying a single target via BURRITO_TARGET env var to avoid cross-compilation issues
+    # Allow specifying a single target via BUILD_TARGET env var to avoid cross-compilation issues
     # When not specified, all targets are built (useful for local development)
-    # Converts from GitHub Actions format (macos-aarch64) to Burrito format (macos_aarch64)
+    # Note: Uses BUILD_TARGET instead of BURRITO_TARGET to avoid direct Burrito override
     targets =
-      case System.get_env("BURRITO_TARGET") do
-        target when target in ["macos-aarch64", "macos_aarch64"] ->
+      case System.get_env("BUILD_TARGET") do
+        "macos-aarch64" ->
           [macos_aarch64: [os: :darwin, cpu: :aarch64]]
 
-        target when target in ["macos-x86_64", "macos_x86_64"] ->
+        "macos-x86_64" ->
           [macos_x86_64: [os: :darwin, cpu: :x86_64]]
 
-        target when target in ["linux-x86_64", "linux_x86_64"] ->
+        "linux-x86_64" ->
           [linux_x86_64: [os: :linux, cpu: :x86_64]]
 
-        target when target in ["linux-aarch64", "linux_aarch64"] ->
+        "linux-aarch64" ->
           [linux_aarch64: [os: :linux, cpu: :aarch64]]
 
-        target when target in ["windows-x86_64", "windows_x86_64"] ->
+        "windows-x86_64" ->
           [windows_x86_64: [os: :windows, cpu: :x86_64]]
 
         _ ->
