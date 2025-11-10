@@ -25,7 +25,7 @@ COPY lib lib
 # Compile application
 RUN mix compile
 
-# Build release
+# Build release (standard Elixir release, not Burrito - USE_BURRITO not set)
 RUN mix release
 
 # Runtime stage

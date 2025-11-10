@@ -63,9 +63,18 @@ defmodule Nimbus.MixProject do
   end
 
   defp releases do
+    # Use Burrito only when explicitly building portable binaries
+    # For Docker/standard releases, use Mix's default release process
+    steps =
+      if System.get_env("USE_BURRITO") == "true" do
+        [:assemble, &Burrito.wrap/1]
+      else
+        [:assemble]
+      end
+
     [
       nimbus: [
-        steps: [:assemble, &Burrito.wrap/1],
+        steps: steps,
         burrito: [
           targets: [
             macos_aarch64: [os: :darwin, cpu: :aarch64],

@@ -57,6 +57,22 @@ jobs:
           otp-version: "27.2"
           elixir-version: "1.18.1"
 
+      - name: Install Zig and XZ (macOS)
+        if: runner.os == 'macOS'
+        run: brew install zig xz
+
+      - name: Install Zig and XZ (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo snap install zig --classic --beta
+          sudo apt-get update && sudo apt-get install -y xz-utils
+
+      - name: Install Zig and XZ (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install zig xz -y
+
       - name: Restore dependencies cache
         uses: actions/cache@v4
         with:
@@ -75,6 +91,7 @@ jobs:
       - name: Build release
         env:
           MIX_ENV: prod
+          USE_BURRITO: "true"
         run: |
           mix release --overwrite
 
