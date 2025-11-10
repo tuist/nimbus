@@ -88,8 +88,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           body: |
-            ${{ needs.changelog.outputs.release_body }}
-
             ## Installation
 
             ### Docker (Recommended)
