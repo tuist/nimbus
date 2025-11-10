@@ -46,7 +46,7 @@ jobs:
           - target: linux_aarch64
             os: ubuntu-latest
           - target: windows_x86_64
-            os: windows-latest
+            os: windows-2022
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,19 +59,39 @@ jobs:
 
       - name: Install Zig and XZ (macOS)
         if: runner.os == 'macOS'
-        run: brew install zig xz
+        run: |
+          brew install xz
+          # Install specific Zig version required by Burrito (0.15.2)
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "arm64" ]; then
+            curl -L https://ziglang.org/download/0.15.2/zig-macos-aarch64-0.15.2.tar.xz | tar -xJ
+            sudo mv zig-macos-aarch64-0.15.2 /usr/local/zig
+          else
+            curl -L https://ziglang.org/download/0.15.2/zig-macos-x86_64-0.15.2.tar.xz | tar -xJ
+            sudo mv zig-macos-x86_64-0.15.2 /usr/local/zig
+          fi
+          echo "/usr/local/zig" >> $GITHUB_PATH
 
       - name: Install Zig and XZ (Linux)
         if: runner.os == 'Linux'
         run: |
-          sudo snap install zig --classic --beta
           sudo apt-get update && sudo apt-get install -y xz-utils
+          # Install specific Zig version required by Burrito (0.15.2)
+          curl -L https://ziglang.org/download/0.15.2/zig-linux-x86_64-0.15.2.tar.xz | tar -xJ
+          sudo mv zig-linux-x86_64-0.15.2 /usr/local/zig
+          echo "/usr/local/zig" >> $GITHUB_PATH
 
       - name: Install Zig and XZ (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install zig xz -y
+          # Install XZ
+          choco install xz -y
+          # Install specific Zig version required by Burrito (0.15.2)
+          Invoke-WebRequest -Uri "https://ziglang.org/download/0.15.2/zig-windows-x86_64-0.15.2.zip" -OutFile "zig.zip"
+          Expand-Archive -Path "zig.zip" -DestinationPath "C:\"
+          Rename-Item "C:\zig-windows-x86_64-0.15.2" "C:\zig"
+          echo "C:\zig" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Restore dependencies cache
         uses: actions/cache@v4
