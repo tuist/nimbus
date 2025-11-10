@@ -1,27 +1,38 @@
 # ☁️ Nimbus
 
-Nimbus is an Elixir runtime application that provisions and manages environments as CI runners. It acts as a glue layer between Git forges (GitHub, GitLab, etc.) and cloud providers, enabling on-demand environment provisioning for continuous integration workloads.
+Nimbus is a control plane for orchestrating infrastructure for multi-environment build and test setups on cloud providers. It manages the complete lifecycle of your CI/CD infrastructure, including runners, caching, telemetry, and more.
 
 ## 📋 Overview
 
-Nimbus powers [Tuist Runners](https://github.com/tuist/tuist) and is designed as a library that integrates into host applications. It provides:
+Nimbus powers [Tuist Runners](https://github.com/tuist/tuist) and acts as a central orchestration layer between your CI/CD workflows and cloud infrastructure. It provides:
 
-- **☁️ Cloud Provider Integration**: Interfaces with various cloud providers to provision CI runner environments
-- **🔗 Git Forge Integration**: Connects with Git forges to receive and process CI job requests
-- **💾 Storage Abstraction**: Flexible architecture that expects the integrating application to provide storage implementation
+- **🎛️ Infrastructure Orchestration**: Centralized control plane for managing runners, cache, and telemetry across multiple cloud providers
+- **☁️ Multi-Cloud Support**: Interfaces with AWS, Azure, GCP, Hetzner, and local environments
+- **🔗 Git Forge Integration**: Seamless integration with GitHub, GitLab, and other Git forges
+- **💾 Storage Abstraction**: Flexible architecture that allows integrating applications to provide their own storage implementation
 - **⚡ On-Demand Provisioning**: Dynamic environment provisioning for cost-effective CI/CD
+- **📊 Telemetry & Observability**: Built-in telemetry for monitoring infrastructure health and performance
 
 ## 🎯 Use Cases
 
-Nimbus is ideal for organizations that:
+Nimbus is ideal for organizations that need:
 
-- ⏱️ Accept the extra latency of provisioning environments on the fly
-- 💰 Prefer trading elasticity for better cost control (especially relevant for macOS runners)
-- 🤝 Want to reuse existing contracts with cloud providers like AWS
+- 🏢 **Multi-Environment Orchestration**: Manage build and test infrastructure across multiple cloud providers from a single control plane
+- ⏱️ **On-Demand Infrastructure**: Accept extra latency in exchange for better cost control, especially for expensive resources like macOS runners
+- 💰 **Cost Optimization**: Trade elasticity for predictable costs by leveraging existing cloud provider contracts
+- 📈 **Infrastructure Observability**: Centralized telemetry and monitoring for your entire CI/CD infrastructure
+- 🔄 **Flexible Integration**: Embed into existing systems as a library or run as a standalone service
 
 ## 🏗️ Architecture
 
-Nimbus is designed as an embeddable Elixir application library with storage abstraction. The integrating application (such as the Tuist server) provides the storage implementation, allowing Nimbus to remain flexible and adaptable to different infrastructure setups.
+Nimbus is designed as an embeddable Elixir application with a storage-agnostic architecture. The integrating application (such as the Tuist server) provides the storage implementation, allowing Nimbus to remain flexible and adaptable to different infrastructure setups.
+
+### Core Components
+
+- **Control Plane**: Central orchestration layer managing infrastructure lifecycle
+- **Provider Interface**: Pluggable adapters for AWS, Azure, GCP, Hetzner, and local environments
+- **Storage Abstraction**: Your application provides the storage backend (PostgreSQL, etc.)
+- **Telemetry System**: Built-in observability for infrastructure monitoring
 
 ## 📦 Installation
 
