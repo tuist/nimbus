@@ -1,25 +1,18 @@
 # ☁️ Nimbus
 
-Nimbus is a control plane for orchestrating infrastructure for multi-environment build and test setups on cloud providers. It manages the complete lifecycle of your infrastructure, including runners, caching, telemetry, and more.
+Nimbus is a standalone Elixir daemon that provisions and manages elastic CI runners. It acts as a glue layer between Git forges (like GitHub, GitLab) and cloud providers, enabling on-demand environment provisioning for continuous integration workloads.
 
 ## 📋 Overview
 
-Nimbus acts as a central orchestration layer for managing infrastructure across cloud providers. It provides:
+Nimbus provides standalone value as an open-source tool for elastic self-hosted runners, while creating a natural pathway to Tuist's managed offerings. Similar to how Grafana Cloud hosts Grafana instances, Tuist can host Nimbus daemons while also supporting self-hosted deployments.
 
-- **🎛️ Infrastructure Orchestration**: Centralized control plane for managing runners, cache, and telemetry across multiple cloud providers
-- **☁️ Multi-Cloud Support**: Interfaces with AWS, Azure, GCP, Hetzner, and local environments
-- **🔗 Git Forge Integration**: Seamless integration with GitHub, GitLab, and other Git forges
-- **⚡ On-Demand Provisioning**: Dynamic environment provisioning for any workload
-- **📊 Telemetry & Observability**: Built-in telemetry for monitoring infrastructure health and performance
+Key features:
 
-## 🎯 Use Cases
-
-Nimbus is ideal for organizations running multiple build and test environments that need:
-
-- 🏢 **Multi-Environment Orchestration**: Manage infrastructure across multiple cloud providers from a single daemon
-- ⏱️ **On-Demand Infrastructure**: Accept extra latency in exchange for better cost control, especially for expensive resources like macOS runners
-- 💰 **Cost Optimization**: Trade elasticity for predictable costs by leveraging existing cloud provider contracts
-- 📈 **Infrastructure Observability**: Centralized telemetry and monitoring for your entire infrastructure
+- **🔗 Git Forge Integration**: Connects with GitHub, GitLab, Forgejo, and other Git forges
+- **☁️ Multi-Cloud Support**: Interfaces with AWS, GCP, Hetzner, and local environments
+- **⚡ Elastic Provisioning**: On-demand CI runner provisioning for cost-effective continuous integration
+- **🏠 Flexible Deployment**: Can be self-hosted or managed by Tuist
+- **🔒 Per-Tenant Isolation**: Each tenant runs their own isolated Nimbus daemon process
 
 ## 📦 Installation
 
