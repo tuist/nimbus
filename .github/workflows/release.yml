@@ -163,7 +163,20 @@ jobs:
           body: |
             ## Installation
 
-            ### Docker (Recommended)
+            ### mise + UBI (Recommended)
+
+            The easiest way to install and run Nimbus is using [mise](https://mise.jdx.dev/) with the UBI backend:
+
+            ```bash
+            # Install and run the latest version
+            mise x ubi:tuist/nimbus@latest -- nimbus start
+
+            # Or install globally
+            mise use -g ubi:tuist/nimbus@latest
+            nimbus start
+            ```
+
+            ### Docker
             ```bash
             docker pull ghcr.io/tuist/nimbus:${{ github.ref_name }}
             docker run -p 4000:4000 ghcr.io/tuist/nimbus:${{ github.ref_name }}

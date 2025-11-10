@@ -25,8 +25,45 @@ Nimbus is designed as an embeddable Elixir application library with storage abst
 
 ## 📦 Installation
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `nimbus` to your list of dependencies in `mix.exs`:
+### mise + UBI (Recommended)
+
+The easiest way to install and run Nimbus is using [mise](https://mise.jdx.dev/) with the UBI backend:
+
+```bash
+# Install and run the latest version
+mise x ubi:tuist/nimbus@latest -- nimbus start
+
+# Or install globally
+mise use -g ubi:tuist/nimbus@latest
+nimbus start
+```
+
+### Docker
+
+```bash
+docker pull ghcr.io/tuist/nimbus:latest
+docker run -p 4000:4000 ghcr.io/tuist/nimbus:latest
+```
+
+### Native Binaries
+
+Download pre-built binaries from the [latest release](https://github.com/tuist/nimbus/releases/latest):
+
+- **macOS (Apple Silicon)**: `nimbus-macos-aarch64.tar.gz`
+- **macOS (Intel)**: `nimbus-macos-x86_64.tar.gz`
+- **Linux (x86_64)**: `nimbus-linux-x86_64.tar.gz`
+- **Linux (ARM64)**: `nimbus-linux-aarch64.tar.gz`
+
+Extract and run:
+
+```bash
+tar xzf nimbus-*.tar.gz
+./nimbus_*/bin/nimbus start
+```
+
+### As a Library
+
+If you're integrating Nimbus into an Elixir application, add it to your dependencies in `mix.exs`:
 
 ```elixir
 def deps do
